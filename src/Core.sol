@@ -17,6 +17,8 @@ error Core__InvalidCreator();
 error Core__IncorrectAgentCreationFee();
 error Core__AgentAlreadyExists();
 error Core__InsufficientBalance();
+error Core__UnauthorizedAccessofAgent();
+error Core__UnauthorizedAccessofRoom();
 
 struct FeeStructure {
     uint256 agentCreationFee;
@@ -29,18 +31,26 @@ struct Agent {
     address Creator;
     bool isActive;
 }
+struct RoomStructure {
+    address token;
+    address creator;
+    bool isActive;
+}
 
 address public dao;
 uint256 public constant MAX_FEE_RATE = 1000;
 uint256 public constant BASIS_POINTS = 1000;
 FeeStructure public fees;
+mapping(address => RoomStructure) public rooms;
 mapping(address => Agent) public agents;
 mapping(address => uint256) public Balances; //useraddress -> balance
 
 event FeesSet(uint256 indexed roomCreationFee, uint256 indexed agentCreationFee, uint256 indexed roomCreatorCut, uint256 agentCreatorCut, uint256 daoCut); //can it be tracked without indexed?
 event AgentUpdated(address indexed agentAddress, address indexed creator, bool indexed isActive);
+event RoomCreated(address indexed roomAddress, address indexed creator);
 event AgentCreated(address indexed agentAddress, address indexed creator);
 event BalanceWithdrawn(address indexed user, uint256 indexed amount);
+event RoomUpdated(address indexed roomAddress, address indexed creator, bool indexed isActive);
     constructor() Ownable(msg.sender){ //owner is admin of dao
         fees = FeeStructure({
             agentCreationFee: 0.01 ether,
@@ -56,26 +66,8 @@ event BalanceWithdrawn(address indexed user, uint256 indexed amount);
     fallback() external {
     }
     
-    function setFee(uint256 roomcreationFee, uint256 agentcreationFee, uint256 roomcreatorCut, uint256 agentcreatorCut, uint256 daocut) public onlyOwner {
-        if(roomcreationFee <= 0 || agentcreationFee <= 0 || roomcreatorCut < 0 || agentcreatorCut < 0 || daocut < 0 ) {
-            revert Core__FeeZero();
-        }
-        if(roomcreatorCut + agentcreatorCut + daocut != BASIS_POINTS) {
-            revert Core__InvalidCutPoints();
-        }
-        if(roomcreatorCut > MAX_FEE_RATE || agentcreatorCut > MAX_FEE_RATE || daocut > MAX_FEE_RATE) {
-            revert Core__InvalidCutRate();
-        }
-        
-        fees.roomCreationFee = roomcreationFee; //fee in wei
-        fees.agentCreationFee = agentcreationFee; //fee in wei
-        fees.roomCreatorCut = roomcreatorCut;
-        fees.agentCreatorCut = agentcreatorCut;
-        fees.daoCut = daocut;
-        emit FeesSet(roomcreationFee, agentcreationFee, roomcreatorCut, agentcreatorCut, daocut);
-
-    }
-
+  
+    //agent functions
     function createAgent(address agentAddress) external payable {
     if(msg.value != fees.agentCreationFee) {
         revert Core__IncorrectAgentCreationFee();
@@ -95,8 +87,8 @@ event BalanceWithdrawn(address indexed user, uint256 indexed amount);
 
     function UpdateAgent(address agentAddress, bool isactive, address creator) external  {
     if(agents[agentAddress].Creator != msg.sender) {
-        revert Core__InvalidCreator();
-    } //check agent address?
+        revert Core__UnauthorizedAccessofAgent();
+    } //check agent address? //can owner change agent status
     agents[agentAddress].isActive = isactive;
     agents[agentAddress].Creator = creator;
 
@@ -104,6 +96,25 @@ event BalanceWithdrawn(address indexed user, uint256 indexed amount);
 
     }
 
+  function setFee(uint256 roomcreationFee, uint256 agentcreationFee, uint256 roomcreatorCut, uint256 agentcreatorCut, uint256 daocut) public onlyOwner {
+        if(roomcreationFee <= 0 || agentcreationFee <= 0 || roomcreatorCut < 0 || agentcreatorCut < 0 || daocut < 0 ) {
+            revert Core__FeeZero();
+        }
+        if(roomcreatorCut + agentcreatorCut + daocut != BASIS_POINTS) {
+            revert Core__InvalidCutPoints();
+        }
+        if(roomcreatorCut > MAX_FEE_RATE || agentcreatorCut > MAX_FEE_RATE || daocut > MAX_FEE_RATE) {
+            revert Core__InvalidCutRate();
+        }
+        
+        fees.roomCreationFee = roomcreationFee; //fee in wei
+        fees.agentCreationFee = agentcreationFee; //fee in wei
+        fees.roomCreatorCut = roomcreatorCut;
+        fees.agentCreatorCut = agentcreatorCut;
+        fees.daoCut = daocut;
+        emit FeesSet(roomcreationFee, agentcreationFee, roomcreatorCut, agentcreatorCut, daocut);
+
+    }
     function setDao(address daoAddress) external onlyOwner {
     dao = daoAddress;
     }
@@ -127,4 +138,47 @@ event BalanceWithdrawn(address indexed user, uint256 indexed amount);
         emit BalanceWithdrawn(msg.sender, amount);
 
     }
+    //room
+    function createRoom(address tokenAddress) external payable returns (address){
+        if(msg.value != fees.roomCreationFee) {
+            revert Core__IncorrectAgentCreationFee();
+        }
+        Room newRoom = new Room(tokenAddress, msg.sender, address(this));
+        RoomStructure memory room = RoomStructure({
+            token: tokenAddress,
+            creator: msg.sender,
+            isActive: true
+        });
+        rooms[address(newRoom)] = room;
+
+        //rooms[address(newRoom)] = newRoomStructure;
+        _distributeFees(fees.roomCreationFee);
+
+        emit RoomCreated(address(newRoom), msg.sender);
+        return address(newRoom);
+    }
+    function updateRoom(address roomAddress, bool isactive, address creator) external {
+        if(rooms[roomAddress].creator != msg.sender) {
+            revert Core__UnauthorizedAccessofRoom();
+        }
+        rooms[roomAddress].isActive = isactive;
+        rooms[roomAddress].creator = creator;
+
+        emit RoomUpdated(roomAddress, creator, isactive);
+    }
+
+    //getters
+    function getRoom(address roomAddress) external view returns (address, address, bool) {
+        return (rooms[roomAddress].token, rooms[roomAddress].creator, rooms[roomAddress].isActive);
+    }
+    function getAgent(address agentAddress) external view returns (address, bool) {
+        return (agents[agentAddress].Creator, agents[agentAddress].isActive);
+    }
+    function getFees() external view returns (uint256, uint256, uint256, uint256, uint256) {
+        return (fees.roomCreationFee, fees.agentCreationFee, fees.roomCreatorCut, fees.agentCreatorCut, fees.daoCut);
+    }
+    function getBalance(address user) external view returns (uint256) {
+        return Balances[user];
+    }
+    
 }
