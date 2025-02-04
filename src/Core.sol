@@ -58,6 +58,7 @@ event RoomUpdated(address indexed roomAddress, address indexed creator, bool ind
             roomCreatorCut: 1000,
             agentCreatorCut: 200,
             daoCut: 200 //platform fee/ dao fee
+        
         });
 
     }
@@ -72,9 +73,6 @@ event RoomUpdated(address indexed roomAddress, address indexed creator, bool ind
     if(msg.value != fees.agentCreationFee) {
         revert Core__IncorrectAgentCreationFee();
     }
-   /* if(agents[agentAddress].creator != address(0)) {
-        revert Core__AgentAlreadyExists();
-    } */
     agents[agentAddress] = Agent({
         Creator: msg.sender,
         isActive: true
@@ -151,7 +149,6 @@ event RoomUpdated(address indexed roomAddress, address indexed creator, bool ind
         });
         rooms[address(newRoom)] = room;
 
-        //rooms[address(newRoom)] = newRoomStructure;
         _distributeFees(fees.roomCreationFee);
 
         emit RoomCreated(address(newRoom), msg.sender);

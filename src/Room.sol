@@ -5,52 +5,78 @@ pragma solidity 0.8.20;
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+//import "@chainlink/contracts/src/v0.8/automation/AutomationCompatible.sol";
 import "./Core.sol";
 
-contract Room is Ownable {
+contract Room is Ownable, ReentrancyGuard {
 
     error Room_RoundActive(uint256 roundId);
+    error Room_RoundInactive();
+    error Room_AlreadyParticipant();
+    error Room_NotParticipant();
+    error Room_AgentNotActive(address agent);
     error Room_RoundNotActive(uint256 roundId);
-    error Room_RoundClosed(uint256 roundId);
+    error Room_InvalidAmount();
+
+    enum BetType {NONE, BUY, NOT_BUY}
+    enum RoundState {INACTIVE,ACTIVE, PROCESSING,CLOSED}
+
+    Core public immutable core;
+    IERC20 public immutable USDC;
+    RoomFees public fees;
 
     address public token;
     address public creator;
     uint256 public currentRoundId;
     address[5] public agents;
-    Core public core;
-    IERC20 public USDC;
-    RoomFees public fees;
+    uint256 public immutable USDC_DECIMALS = 6;
+
 
     struct Round {
         RoundState state;
         uint40 startTime;
         uint40 endTime;
-    }
+        uint256 totalFees;
+        mapping(address => UserBet) bets;
+        mapping(address => AgentPosition) agentPositions;
+        mapping(address =>bool) hasClaimedWinnings;
 
+    }
+   
     struct RoomFees {
         uint256 roomEntryFee;
         uint256 messageInjectionFee;
         uint256 muteForaMinuteFee;
     }
-    struct Bet{
-        BetType bet;
+    struct UserBet{
+        BetType betype;
         uint256 amount;
-        bool claimed;
+        bool refunded;
+    }
+    struct AgentPosition {
+        uint256 buyPool;
+        uint256 notBuyPool;
+        BetType decision;
+        bool hasDecided;
     }
 
     mapping(uint256 => Round) public rounds; //roundid to struct
     mapping(address => bool) public isAgent;
-    mapping(uint256 => mapping(address => bool)) public agentDecisions; //roundid to agentaddress to decision
-    mapping(uint256 => mapping(address => mapping(address => BetType))) public bets; //rounid to useraddress to agentaddress to bet
+    mapping(address => bool) public roomParticipants;
+    //mapping(uint256 => mapping(address => bool)) public agentDecisions; //roundid to agentaddress to decision
+    //mapping(uint256 => mapping(address => mapping(address => BetType))) public bets; //rounid to useraddress to agentaddress to bet
 
-    event MessageInjected(address indexed sender, uint256 indexed roundId);
-    event JoinedRoom(address indexed sender, uint256 indexed roundId);
-    event MutedForaMinute(address indexed sender, uint256 indexed roundId, address indexed agentToMute);
+    event RoundStarted(uint256 indexed roundId, uint40 startTime, uint40 endTime);
+    event JoinedRoom(address indexed user, uint256 indexed roundId);
+    event MessageInjected(address indexed user, uint256 indexed roundId);
+    event MutedForaMinute(address indexed user, uint256 indexed roundId, address indexed agent);
+    event BetPlaced(address indexed user, uint256 indexed roundId, address indexed agent, BetType betType, uint256 amount);
+    event FeesDistributed(uint256 indexed roundId, uint256 roomcreatorCut, uint256 daoCut, uint256 agentcreatorCut);
 
-    constructor(address tokenaddress,address creatoraddress,address coreaddress, address[5] memory _agents, uint256 roomEntryFee, uint256 messageInjectionFee, uint256 muteForaMinuteFee) Ownable(coreaddress) {
+    constructor(address tokenaddress,address creatoraddress,address coreaddress, address[5] memory _agents, address usdc,uint256 roomEntryFee, uint256 messageInjectionFee, uint256 muteForaMinuteFee) Ownable(coreaddress) {
         token = tokenaddress;
         creator = creatoraddress;
-        
+        USDC = IERC20(usdc);
         fees = RoomFees({
             roomEntryFee: roomEntryFee,
             messageInjectionFee: messageInjectionFee,
@@ -67,21 +93,22 @@ contract Room is Ownable {
         startRound();
     }
 
-    enum RoundState {OPEN, CLOSED, PROCESSING}
-    enum BetType {BUY , NOTBUY}
-    enum AgentDecision {BUY, NOTBUY}
-
     function startRound() public {
     
         if(rounds[currentRoundId].endTime > block.timestamp){
             revert Room_RoundActive(currentRoundId);
         }
         currentRoundId++;
-        rounds[currentRoundId] = Round({
-            state: RoundState.OPEN,
+       /* rounds[currentRoundId] = Round({
+            state: RoundState.ACTIVE,
             startTime: uint40(block.timestamp),
             endTime: uint40(block.timestamp + 5 minutes)
-        });
+        }); */
+        Round storage round = rounds[currentRoundId];
+        round.startTime = uint40(block.timestamp);
+        round.endTime = uint40(block.timestamp + 5 minutes);
+        round.state = RoundState.ACTIVE;
+        emit RoundStarted(currentRoundId, round.startTime, round.endTime);
        
     }
     function updateFees(uint256 roomEntryFee, uint256 messageInjectionFee, uint256 muteForaMinuteFee) public {
@@ -92,41 +119,83 @@ contract Room is Ownable {
         });
     }
 
-    function joinRoom() public payable { //accepting eth for now
-        require(msg.value == fees.roomEntryFee, "Incorrect room entry fee");
+    function joinRoom() public {
+        Round storage round = rounds[currentRoundId];
+        if(round.state != RoundState.ACTIVE) revert Room_RoundInactive();
+        if(roomParticipants[msg.sender]) revert Room_AlreadyParticipant();
+        uint256 amount = fees.roomEntryFee;
+        USDC.transferFrom(msg.sender, address(this), amount);
+        roomParticipants[msg.sender] = true;
+        round.totalFees += amount; 
        emit JoinedRoom(msg.sender, currentRoundId);
        
     }
-    function injectMessage(uint256 roundId) public payable {
-        require(msg.value == fees.messageInjectionFee, "Incorrect message injection fee");
-        emit MessageInjected(msg.sender, currentRoundId);//ask team to handle messages
+    function injectMessage() public nonReentrant {
+        Round storage round = rounds[currentRoundId];
+        if(round.state != RoundState.ACTIVE) revert Room_RoundInactive();
+        if(!roomParticipants[msg.sender]) revert Room_NotParticipant(); //change to modifier
+        
+        uint256 amount = fees.messageInjectionFee;
+        require(USDC.transferFrom(msg.sender, address(this), amount));
+        round.totalFees += amount;
+        emit MessageInjected(msg.sender, currentRoundId);
     }
-    function muteForaMinute(uint256 round, address agentToMute) public payable {
-        require(msg.value == fees.muteForaMinuteFee, "Incorrect mute fee");
-        emit MutedForaMinute(msg.sender, round, agentToMute);
+    function muteForaMinute(address agentToMute) public nonReentrant {
+        Round storage round = rounds[currentRoundId];
+        if(round.state == RoundState.ACTIVE) revert Room_RoundInactive();
+        if(!roomParticipants[msg.sender]) revert Room_NotParticipant();
+        if(!isAgent[agentToMute]) revert Room_AgentNotActive(agentToMute);
+        uint256 amount = fees.muteForaMinuteFee;
+        USDC.transferFrom(msg.sender, address(this), amount);
+        emit MutedForaMinute(msg.sender, currentRoundId, agentToMute);
 
     }
+ 
 
-   function _transferfeestoCore() public {
-        //round end check
-        //transfer to core
-    }
-
-    function placeBet(uint256 roundId, address agentAddress,BetType userbet,uint256 amount) public {
-    
-        if(rounds[roundId].state != RoundState.OPEN){
-            revert Room_RoundNotActive(roundId);
+    function placeBet(address agent,BetType betType,uint256 amount) public {
+        Round storage round = rounds[currentRoundId];
+        if(round.state != RoundState.ACTIVE){
+            revert Room_RoundNotActive(currentRoundId);
         }
-        require(isAgent[agentAddress], "Invalid agent address");
-        require(amount > 0, "Bet amount must be greater than zero");
-        require(bets[roundId][msg.sender][agentAddress] == BetType(0), "Bet already placed");
+        if(!isAgent[agent]) {
+            revert Room_AgentNotActive(agent);
+        }
+        if(amount <= 0) {
+            revert Room_InvalidAmount();
+        }
+        UserBet storage userBet = round.bets[msg.sender];
+        AgentPosition storage position = round.agentPositions[agent];
+        if(betType == BetType.BUY){
+            position.buyPool += amount;
+        }
+        else {
+            position.notBuyPool +=amount;
+        }
+
+        userBet.betype = betType;
+        userBet.amount = amount;
 
         USDC.transferFrom(msg.sender, address(this), amount);
+        emit BetPlaced(msg.sender, currentRoundId, agent, betType, amount);
 
-        bets[roundId][msg.sender][agentAddress] = userbet;
    
     }
-   
+    //too much gas, gotta refactor
+    /*function _distributeFees(uint256 roundId) internal{
+        Round storage round = rounds[roundId];
+        uint256 totalFees = round.totalFees;
+        uint256 roomCreatorCut = (totalFees * core.fees.roomCreatorCut()) / core.BASIS_POINTS();
+        uint256 agentCreatorCut = (totalFees * core.fees.agentCreatorCut()) / core.BASIS_POINTS();
+        uint256 daoCut = (totalFees * core.fees.daoCut()) / core.BASIS_POINTS();
     
-   
+        USDC.transfer(creator, roomCreatorCut);
+        USDC.transfer(core.dao(), daoCut);
+        uint256 agentCreatorShare = agentCreatorCut / 5;
+        for(uint256 i; i < 5; i++){
+            (address agentcreator,) = core.getAgent(round.agent[i]);
+            USDC.transfer(agentcreator, agentCreatorShare); //recheck 
+        }
+        emit FeesDistributed(roundId);
+
+    }*/
 }
