@@ -17,6 +17,8 @@ contract Room is Ownable, ReentrancyGuard {
     error Room_AgentNotActive(address agent);
     error Room_RoundNotActive(uint256 roundId);
     error Room_InvalidAmount();
+    error Room_NoWinnings();
+    error Room_InvalidBetType();
 
     enum BetType {NONE, BUY, NOT_BUY}
     enum RoundState {INACTIVE,ACTIVE, PROCESSING,CLOSED}
@@ -49,7 +51,7 @@ contract Room is Ownable, ReentrancyGuard {
         uint256 muteForaMinuteFee;
     }
     struct UserBet{
-        BetType betype;
+        BetType bettype;
         uint256 amount;
         bool refunded;
     }
@@ -72,6 +74,7 @@ contract Room is Ownable, ReentrancyGuard {
     event MutedForaMinute(address indexed user, uint256 indexed roundId, address indexed agent);
     event BetPlaced(address indexed user, uint256 indexed roundId, address indexed agent, BetType betType, uint256 amount);
     event FeesDistributed(uint256 indexed roundId, uint256 roomcreatorCut, uint256 daoCut, uint256 agentcreatorCut);
+    event WinningsClaimed(uint256 indexed roundId, address indexed user, uint256 winnings);
 
     constructor(address tokenaddress,address creatoraddress,address coreaddress, address[5] memory _agents, address usdc,uint256 roomEntryFee, uint256 messageInjectionFee, uint256 muteForaMinuteFee) Ownable(coreaddress) {
         token = tokenaddress;
@@ -172,7 +175,7 @@ contract Room is Ownable, ReentrancyGuard {
             position.notBuyPool +=amount;
         }
 
-        userBet.betype = betType;
+        userBet.bettype = betType;
         userBet.amount = amount;
 
         USDC.transferFrom(msg.sender, address(this), amount);
@@ -180,6 +183,57 @@ contract Room is Ownable, ReentrancyGuard {
 
    
     }
+    function claimWinnings(uint256 roundId) public nonReentrant(){
+        Round storage round = rounds[roundId];
+        if(round.state != RoundState.CLOSED) revert Room_RoundNotActive(roundId);
+        if(!roomParticipants[msg.sender]) revert Room_NotParticipant();
+        if(round.hasClaimedWinnings[msg.sender]) revert Room_AlreadyParticipant();
+        uint256 winnings = calculateWinnings(roundId, msg.sender);
+        if(winnings == 0) revert Room_NoWinnings();
+
+        round.hasClaimedWinnings[msg.sender] = true;
+        USDC.transfer(msg.sender, winnings);
+        emit WinningsClaimed(roundId, msg.sender, winnings);
+        //uint256 winnings = calculateWinnings(roundId, msg.sender);
+        //USDC.transfer(msg.sender, winnings);
+    }
+
+    function calculateWinnings(uint256 roundId, address user) public view returns(uint256){
+        Round storage round = rounds[roundId];
+        uint256 totalWinnings = 0;
+
+        for(uint256 i; i < 5; i++){
+            address agent = agents[i];
+            AgentPosition storage position = round.agentPositions[agent];
+
+            UserBet storage userBet = round.bets[user];
+
+            if(position.hasDecided && userBet.bettype == position.decision) {
+                uint256 winningPool;
+                uint256 totalPool = position.buyPool + position.notBuyPool;
+
+                if(userBet.bettype == BetType.BUY){
+                    winningPool = position.buyPool;
+                }
+                else {
+                    winningPool = position.notBuyPool;
+                }
+                if(winningPool > 0){
+                    totalWinnings += (userBet.amount * totalPool) / winningPool;
+                }
+            }
+            unchecked {
+                ++i;
+            }
+
+            }
+            return totalWinnings;
+    }
+
+    //function to resolve market round
+    //function for checkupkeep,performupkeep to change round state
+    //function to submit agent decision
+
     //too much gas, gotta refactor
     /*function _distributeFees(uint256 roundId) internal{
         Round storage round = rounds[roundId];
