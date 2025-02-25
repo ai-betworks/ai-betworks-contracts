@@ -210,7 +210,7 @@ contract Room is Ownable, ReentrancyGuard {
 
     function updateRoundDuration(uint40 newDuration) public onlyGameMaster {
         uint40 oldDuration = roundDuration;
-        if (newDuration < 10 seconds) revert Room_InvalidRoundDuration(); 
+        if (newDuration < 10 seconds) revert Room_InvalidRoundDuration();
         roundDuration = newDuration;
         emit RoundDurationUpdated(oldDuration, newDuration);
     }
@@ -327,7 +327,6 @@ contract Room is Ownable, ReentrancyGuard {
     }
 
     function startRound() public onlyGameMaster {
-       
         currentRoundId++;
         Round storage round = rounds[currentRoundId];
         round.startTime = uint40(block.timestamp);
@@ -346,14 +345,13 @@ contract Room is Ownable, ReentrancyGuard {
         if (decision == BetType.KICK /*&& msg.sender != gameMaster*/ ) revert Room_NotGameMaster();
 
         Round storage round = rounds[currentRoundId];
-     
+
         AgentPosition storage position = round.agentPositions[agent];
         if (position.hasDecided) revert Room_AgentAlreadyDecided();
         position.decision = decision;
         position.hasDecided = true;
         emit AgentDecisionSubmitted(currentRoundId, agent, decision);
     }
-
 
     function resolveMarket() public {
         Round storage round = rounds[currentRoundId];
@@ -458,7 +456,6 @@ contract Room is Ownable, ReentrancyGuard {
         emit PvpActionsUpdated(verb, category, fee, duration, newAction, !newAction);
     }
 
-
     function invokePvpAction(address target, string memory verb, bytes memory parameters) public payable {
         if (parameters.length > 256) {
             revert Room_InvalidPvpAction();
@@ -519,7 +516,6 @@ contract Room is Ownable, ReentrancyGuard {
         round.state = newState;
         emit RoundStateUpdated(currentRoundId, newState);
     }
-
 
     function getPvpActionFee(string memory verb) public view returns (uint256) {
         return supportedPvpActions[verb].fee;

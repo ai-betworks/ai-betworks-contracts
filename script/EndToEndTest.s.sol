@@ -236,13 +236,12 @@ contract EndToEndTest is Script {
         console2.log("\n=== Testing PvP Actions ===\n");
         dumpPvPState(room, room.currentRoundId());
         console2.log("Calling PvP action from:", msg.sender);
-console2.log("Balance before PvP action:", msg.sender.balance);
-vm.startBroadcast(account1Key);  // Ensure it's called from account1
-room.invokePvpAction{value: STATUS_EFFECT_FEE}(TARGET_1, "silence", "");
-vm.stopBroadcast();
+        console2.log("Balance before PvP action:", msg.sender.balance);
+        vm.startBroadcast(account1Key); // Ensure it's called from account1
+        room.invokePvpAction{value: STATUS_EFFECT_FEE}(TARGET_1, "silence", "");
+        vm.stopBroadcast();
 
-
-       /* try room.invokePvpAction{value: STATUS_EFFECT_FEE}(TARGET_1, "silence", "") {
+        /* try room.invokePvpAction{value: STATUS_EFFECT_FEE}(TARGET_1, "silence", "") {
             console2.log("Silence action succeeded");
         } catch Error(string memory reason) {
             console2.log("Error invoking silence:", reason);
@@ -250,9 +249,9 @@ vm.stopBroadcast();
 
         dumpPvPState(room, room.currentRoundId());
 
-vm.startBroadcast(account2Key);  // Ensure the call is made from a funded account
-room.invokePvpAction{value: STATUS_EFFECT_FEE}(TARGET_2, "deafen", "");
-vm.stopBroadcast();
+        vm.startBroadcast(account2Key); // Ensure the call is made from a funded account
+        room.invokePvpAction{value: STATUS_EFFECT_FEE}(TARGET_2, "deafen", "");
+        vm.stopBroadcast();
 
         /*room.invokePvpAction{value: STATUS_EFFECT_FEE}(TARGET_2, "deafen", "");*/
         vm.startBroadcast(account3Key);
