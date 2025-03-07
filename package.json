@@ -20,6 +20,7 @@
   },
   "homepage": "https://github.com/agentic-2025/pvp-ai-contracts#readme",
   "dependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
     "@wagmi/cli": "^2.2.0"
   }
 }
