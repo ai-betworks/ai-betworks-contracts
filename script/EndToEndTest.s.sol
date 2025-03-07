@@ -27,7 +27,7 @@ contract EndToEndTest is Script {
     address public TARGET_3;
 
     //token address
-    address public token = 0x88Fb150BDc53A65fe94Dea0c9BA0a6dAf8C6e196;
+    address public token = 0xE4aB69C077896252FAFBD49EFD26B5D171A32410;
 
     // Add fee constants
     uint256 constant STATUS_EFFECT_FEE = 0.0002 ether;
@@ -65,6 +65,7 @@ contract EndToEndTest is Script {
     function run() public {
         // === SETUP PHASE ===
         console2.log("\n=== Starting Setup Phase ===\n");
+        console2.log("Mock usdc address:", address(usdc));
 
         // 2. Deploy Core contract
         vm.broadcast(deployer);
@@ -234,18 +235,29 @@ contract EndToEndTest is Script {
         // Test PvP actions before closing the round
         console2.log("\n=== Testing PvP Actions ===\n");
         dumpPvPState(room, room.currentRoundId());
+        console2.log("Calling PvP action from:", msg.sender);
+        console2.log("Balance before PvP action:", msg.sender.balance);
+        vm.startBroadcast(account1Key); // Ensure it's called from account1
+        room.invokePvpAction{value: STATUS_EFFECT_FEE}(TARGET_1, "silence", "");
+        vm.stopBroadcast();
 
-        // try room.invokePvpAction{value: STATUS_EFFECT_FEE}(TARGET_1, "silence", "") {
-        //     console2.log("Silence action succeeded");
-        // } catch Error(string memory reason) {
-        //     console2.log("Error invoking silence:", reason);
-        // }
+        /* try room.invokePvpAction{value: STATUS_EFFECT_FEE}(TARGET_1, "silence", "") {
+            console2.log("Silence action succeeded");
+        } catch Error(string memory reason) {
+            console2.log("Error invoking silence:", reason);
+        } */
 
         // dumpPvPState(room, room.currentRoundId());
 
-        // room.invokePvpAction{value: STATUS_EFFECT_FEE}(TARGET_2, "deafen", "");
-        // bytes memory poisonParams = bytes('{"find": "nice", "replace": "terrible", "caseSensitive": false}');
-        // room.invokePvpAction{value: POISON_FEE}(TARGET_1, "poison", poisonParams);
+        vm.startBroadcast(account2Key); // Ensure the call is made from a funded account
+        room.invokePvpAction{value: STATUS_EFFECT_FEE}(TARGET_2, "deafen", "");
+        vm.stopBroadcast();
+
+        /*room.invokePvpAction{value: STATUS_EFFECT_FEE}(TARGET_2, "deafen", "");*/
+        vm.startBroadcast(account3Key);
+        bytes memory poisonParams = bytes('{"find": "nice", "replace": "terrible", "caseSensitive": false}');
+        room.invokePvpAction{value: POISON_FEE}(TARGET_1, "poison", poisonParams);
+        vm.stopBroadcast();
 
         // console2.log("pvp actions test complete");
         // Fast forward time to end of round

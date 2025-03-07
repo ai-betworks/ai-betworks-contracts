@@ -213,7 +213,7 @@ contract Room is Ownable, ReentrancyGuard {
 
     function updateRoundDuration(uint40 newDuration) public onlyGameMaster {
         uint40 oldDuration = roundDuration;
-        if (newDuration < 10 seconds) revert Room_InvalidRoundDuration(); //Agents have unpredictable arch, need some time for diverse setups
+        if (newDuration < 10 seconds) revert Room_InvalidRoundDuration();
         roundDuration = newDuration;
         emit RoundDurationUpdated(oldDuration, newDuration);
     }
@@ -330,15 +330,6 @@ contract Room is Ownable, ReentrancyGuard {
     }
 
     function startRound() public onlyGameMaster {
-        //TODO comment this back in
-
-        // if (rounds[currentRoundId].endTime < block.timestamp) {
-        //     revert Room_RoundNotExpectedStatus(RoundState.INACTIVE, rounds[currentRoundId].state);
-        // }
-        // if (rounds[currentRoundId].state != RoundState.INACTIVE && rounds[currentRoundId].state != RoundState.CLOSED) {
-        // revert Room_RoundNotExpectedStatus(RoundState.INACTIVE, rounds[currentRoundId].state);
-        // }
-
         currentRoundId++;
         Round storage round = rounds[currentRoundId];
         round.startTime = uint40(block.timestamp);
@@ -357,34 +348,13 @@ contract Room is Ownable, ReentrancyGuard {
         if (decision == BetType.KICK /*&& msg.sender != gameMaster*/ ) revert Room_NotGameMaster();
 
         Round storage round = rounds[currentRoundId];
-        // if (round.state != RoundState.PROCESSING) {
-        //     revert Room_RoundNotExpectedStatus(RoundState.PROCESSING, round.state);
-        // }
+
         AgentPosition storage position = round.agentPositions[agent];
         if (position.hasDecided) revert Room_AgentAlreadyDecided();
         position.decision = decision;
         position.hasDecided = true;
         emit AgentDecisionSubmitted(currentRoundId, agent, decision);
     }
-
-    //TODO This function is broken,we should be refunding the user bets, the user is not an agent
-    // function refundBets(uint256 roundId, address agent) internal {
-    //     Round storage round = rounds[roundId];
-    //     AgentPosition storage position = round.agentPositions[agent];
-    //     if (!position.hasDecided) {
-    //         for (uint256 i; i < activeAgents.length; i++) {
-    //             address user = activeAgents[i];
-    //             UserBet storage userBet = round.bets[user];
-    //             if (userBet.bettype == BetType.BUY) {
-    //                 (bool success,) = payable(user).call{value: userBet.amount}("");
-    //                 if (!success) revert Room_TransferFailed();
-    //             } else {
-    //                 (bool success,) = payable(user).call{value: userBet.amount}("");
-    //                 if (!success) revert Room_TransferFailed();
-    //             }
-    //         }
-    //     }
-    // }
 
     function resolveMarket() public {
         Round storage round = rounds[currentRoundId];
@@ -488,21 +458,6 @@ contract Room is Ownable, ReentrancyGuard {
 
         emit PvpActionsUpdated(verb, category, fee, duration, newAction, !newAction);
     }
-
-    // TODO Commented to shave space
-    // function removeSupportedPvpActions(string memory verb) external onlyGameMasterOrCreator {
-    //     delete supportedPvpActions[verb];
-
-    //     for (uint256 i = 0; i < supportedPvpVerbs.length; i++) {
-    //         if (keccak256(abi.encodePacked(supportedPvpVerbs[i])) == keccak256(abi.encodePacked(verb))) {
-    //             supportedPvpVerbs[i] = supportedPvpVerbs[supportedPvpVerbs.length - 1];
-    //             supportedPvpVerbs.pop();
-    //             break;
-    //         }
-    //     }
-
-    //     emit PvpActionRemoved(verb);
-    // }
 
     function invokePvpAction(address target, string memory verb, bytes memory parameters) public payable {
         if (parameters.length > 256) {
