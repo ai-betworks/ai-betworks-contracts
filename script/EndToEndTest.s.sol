@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+// This is the main script we use to deploy the contract and to test all the core functions
+// I recommend running it over the DeployCore, DeployDiamond, etc. scripts unless you know what you're doing
 pragma solidity 0.8.20;
 
 import {Script, console2} from "forge-std/Script.sol";
@@ -25,9 +27,6 @@ contract EndToEndTest is Script {
     address public TARGET_1;
     address public TARGET_2;
     address public TARGET_3;
-
-    //token address
-    address public token = 0xE4aB69C077896252FAFBD49EFD26B5D171A32410;
 
     // Add fee constants
     uint256 constant STATUS_EFFECT_FEE = 0.0002 ether;
